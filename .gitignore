@@ -1,0 +1,12 @@
+__pycache__/
+build/
+dist/
+*.spec
+analysis_*_simulation/
+rules.local.json
+app_settings.json
+*.log
+*.tmp
+*.pyc
+.venv/
+venv/

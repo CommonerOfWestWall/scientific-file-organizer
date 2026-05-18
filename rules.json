@@ -1,0 +1,51 @@
+{
+  "version": 8,
+  "description": "科学文件整理器的大众版通用规则。私人项目、公司内部词、个人习惯词请放入 rules.local.json，不建议提交到开源仓库。",
+  "keywords": {
+    "important_topics": ["身份证", "护照", "户口", "驾驶证", "驾照", "银行卡", "社保", "医保", "合同", "证明", "证书", "简历", "offer", "录取", "档案", "协议", "授权"],
+    "finance_topics": ["银行", "流水", "理财", "税", "个税", "工资", "预算", "报价", "采购", "订单", "发票", "报销", "账单", "收据"],
+    "design_topics": ["logo", "海报", "封面", "banner", "kv", "视觉", "设计", "ui", "icon", "图标", "插画", "品牌", "画册"],
+    "dev_topics": ["github", "源码", "代码", "repo", "node_modules", "venv", "src", "dist", "build", "api", "sdk", "debug"],
+    "data_topics": ["数据", "dataset", "导出", "统计", "表格", "database", "backup", "备份", "报表", "台账"],
+    "stock_topics": ["包图网", "摄图", "站酷", "千图", "素材", "stock", "template", "模板", "vecteezy", "istock", "shutterstock"],
+    "software_topics": ["installer", "setup", "安装", "chromium", "extension", "插件", "驱动", "studio", "hevc", "appxbundle", "模拟器", "修改器", "风灵月影", "yuzu", "ns-emu", "netpass", "cheat", "trainer"],
+    "model_topics": ["3d", "cad", "模型", "手办", "打印", "stl", "3mf", "obj", "glb", "gltf", "bambu"],
+    "doc_topics": ["说明", "文档", "报告", "方案", "清单", "计划", "教程", "会议", "纪要", "申请", "总结"],
+    "audio_topics": ["音乐", "音效", "歌曲", "合唱", "配乐", "录音", "播客", "voice", "audio"],
+    "screenshot_topics": ["截图", "截屏", "screenshot", "微信图片", "wx", "img_", "dsc", "photo", "相册"],
+    "education_topics": ["课程", "教材", "教案", "课件", "实验", "物理", "化学", "科学", "科普", "生物", "工程", "历史", "文明", "数学", "语文", "英语", "读书", "阅读", "论文", "作业", "讲义", "题库", "章节", "第一章", "第二章", "第三章", "第四章", "第五章", "第六章", "第七章"],
+    "marketing_topics": ["活动", "宣传", "推广", "新书", "推荐", "春节", "元旦", "节日", "年会", "庆典", "聚会", "团建", "读书日", "海报", "朋友圈", "招生", "发布会", "展会", "直播", "路演", "促销"],
+    "publishing_topics": ["图书", "书名", "书号", "isbn", "书影", "样书", "目录", "版权页", "版权", "内文", "文前", "扉页", "封面", "腰封", "详情页", "上架", "网店", "当当", "京东", "天猫", "有赞", "微店", "新书信息", "教材", "教科书", "教师用书", "制版", "校对", "终稿", "书展", "书单", "选题", "出版", "出版社"],
+    "fulfillment_topics": ["快递单号", "发货单", "拣货单", "订单", "结算", "结算单", "差额处理", "分销", "返款", "批量发货", "发出单号", "单号回告", "快递", "发货", "销售", "经营情况", "物流", "仓储", "库存", "入库", "出库"]
+  },
+  "extensions": {
+    "image_exts": [".jpg", ".jpeg", ".jfif", ".png", ".webp", ".gif", ".bmp", ".tif", ".tiff", ".heic", ".raw", ".eps", ".ico"],
+    "video_exts": [".mp4", ".mov", ".mkv", ".avi", ".rmvb", ".wmv", ".flv", ".webm", ".m4v", ".mxf", ".m3u8"],
+    "audio_exts": [".mp3", ".wav", ".m4a", ".aac", ".flac", ".ogg", ".wma", ".aiff"],
+    "model_exts": [".stl", ".3mf", ".obj", ".glb", ".gltf", ".fbx", ".blend", ".step", ".stp", ".iges", ".igs", ".dwg", ".dxf"],
+    "doc_exts": [".doc", ".docx", ".pdf", ".txt", ".md", ".ppt", ".pptx", ".rtf", ".pages", ".key"],
+    "code_exts": [".py", ".pyw", ".spec", ".js", ".ts", ".tsx", ".jsx", ".html", ".htm", ".css", ".scss", ".json", ".ini", ".toml", ".yaml", ".yml", ".ps1", ".bat", ".command", ".sh", ".sql", ".cs", ".xaml", ".csproj", ".sln", ".pyproj", ".props", ".targets", ".resx"],
+    "installer_exts": [".exe", ".msi", ".appx", ".appxbundle", ".crx", ".dmg", ".pkg", ".deb", ".rpm"],
+    "archive_exts": [".zip", ".rar", ".7z", ".tar", ".gz", ".bz2", ".xz"],
+    "ai_model_exts": [".safetensors", ".ckpt", ".pth", ".pt", ".onnx"],
+    "data_exts": [".csv", ".tsv", ".xlsx", ".xls", ".numbers", ".db", ".sqlite", ".parquet", ".xml", ".jsonl", ".sav"],
+    "font_exts": [".ttf", ".otf", ".woff", ".woff2", ".eot"],
+    "design_exts": [".psd", ".psb", ".ai", ".fig", ".sketch", ".xd", ".indd", ".svg", ".ase", ".afdesign"],
+    "ebook_exts": [".epub", ".mobi", ".azw3", ".chm"],
+    "project_bundle_exts": [".aep", ".prproj", ".drp", ".drx"],
+    "post_exts": [".aep", ".prproj", ".drp", ".drx", ".xmp", ".srt", ".ass", ".vtt", ".sample"],
+    "post_cache_exts": [".cfa", ".pek"],
+    "dev_artifact_exts": [".pyc", ".pyd", ".pyz", ".dll", ".toc", ".vsidx", ".cache", ".suo", ".pdb", ".resources", ".tcl", ".enc", ".msg", ".tm", ".typed", ".tmpl", ".dat", ".v2", ".user", ".manifest", ".res"],
+    "email_exts": [".msg", ".eml"],
+    "shortcut_temp_exts": [".lnk", ".url", ".xdown", ".download", ".tmp", ".part", ".crdownload", ".torrent"]
+  },
+  "stop_words": ["copy", "final", "new", "old", "test", "demo", "backup", "download", "image", "images", "video", "file", "project", "untitled", "未命名", "项目", "素材", "图片", "视频", "文件", "新建", "副本", "最终", "测试", "下载", "压缩包", "安装包", "使用", "说明", "版本", "新建文本文档", "文本文档", "新建文本", "未命名项目", "and", "the", "with", "from", "for", "plus", "black", "white", "x64", "x86", "iss", "ist", "pki", "pose", "dall", "imageinput", "category", "目录", "文前", "内文", "扉页", "版权", "版权页", "扫描文稿", "归档", "技术", "申请", "报告", "清单", "证明", "材料", "资料", "详情", "详情页", "新书信息", "上架信息"],
+  "skip_names": ["$recycle.bin", "system volume information", "desktop.ini", "thumbs.db", ".ds_store"],
+  "ai_source_patterns": [
+    {"name": "Gemini生成素材", "pattern": "^gemini_generated_image"},
+    {"name": "即梦生成素材", "pattern": "^jimeng-"},
+    {"name": "Midjourney生成素材", "pattern": "midjourney|^mj_"},
+    {"name": "DALL-E生成素材", "pattern": "dall[·._ -]?e"},
+    {"name": "StableDiffusion生成素材", "pattern": "stable.?diffusion|comfyui|sdxl"}
+  ]
+}
