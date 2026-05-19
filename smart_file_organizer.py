@@ -508,6 +508,10 @@ class SmartClassifier:
         if ext in self.INSTALLER_EXTS or ext in {".apk", ".ipa", ".qlplugin", ".diagcab", ".cmd"} or self._has_any(lower, self.SOFTWARE_TOPICS):
             return self._result("08_软件安装包与插件", 92, "扩展名或名称显示为安装程序、驱动或浏览器插件")
 
+        code_project = self._code_project_topic(name, theme)
+        if code_project and ext in self.CODE_EXTS:
+            return self._result(f"07_开发代码与自动化/项目脚本/{code_project}", 88, f"代码脚本命中“{code_project}”项目线索，避免混入通用脚本")
+
         if ext in self.CODE_EXTS or self._has_any(lower, self.DEV_TOPICS):
             return self._result("07_开发代码与自动化/代码配置脚本", 88, "命中代码、配置、构建或自动化脚本特征")
 
@@ -640,6 +644,9 @@ class SmartClassifier:
         if self._is_post_project_dir(path):
             return self._result("12_剪辑工程与后期制作/工程包与项目目录", 92, "识别为 AE/PR/剪辑工程包，需整体保留素材路径关系")
 
+        if re.match(r"^(dist|release|publish|output|out)[_-]?", lower) and self._folder_has_ext(path, self.INSTALLER_EXTS | {".exe", ".msi"}):
+            return self._result("08_软件安装包与插件/构建发布包目录", 88, "文件夹名像 dist/release，且内部包含 exe/msi 等发布产物")
+
         if lower in {"dall", "chatgpt", "chatgpt作图"} or re.search(r"dall[·._ -]?e|chatgpt|comfyui|sdxl", lower):
             return self._result("02_图片视频与AI素材/AI生成素材目录", 90, "文件夹名显示为 AI 作图或 AI 生成素材")
 
@@ -766,6 +773,23 @@ class SmartClassifier:
                 return self._result(f"11_音频视频资料/录音与语音备忘/{modified_month}", 84, "命名显示为录音、语音备忘或会议音频")
             if self._has_any(context, ("bgm", "sound", "sfx", "音效", "配乐", "素材", "loop")):
                 return self._result(f"11_音频视频资料/音乐音效素材/{modified_month}", 84, "命名显示为配乐、音效或音频素材")
+        return None
+
+    def _code_project_topic(self, name: str, theme: str | None = None) -> str | None:
+        lower = name.lower()
+        checks = (
+            ("视频片头片尾工具", ("片头", "片尾", "视频片头", "视频片尾")),
+            ("批量水印工具", ("水印", "watermark")),
+            ("麻将规则与番种图解", ("麻将", "番种", "番型", "图解")),
+            ("图书3D生成工具", ("book-3d", "3d-generator", "书籍3d", "图书3d")),
+        )
+        for topic, keywords in checks:
+            if self._has_any(lower, keywords):
+                return topic
+        if theme:
+            cleaned = self._clean_topic(theme)
+            if cleaned and cleaned not in {"共同主题", "生成", "最终", "版本"}:
+                return cleaned
         return None
 
     def _classify_office_deep(self, path: Path, modified_month: str, theme: str | None = None) -> tuple[str, int, str] | None:
@@ -1030,6 +1054,16 @@ class SmartClassifier:
         except OSError:
             return False
         return any(name.lower() in existing for name in names)
+
+    @staticmethod
+    def _folder_has_ext(path: Path, exts: set[str]) -> bool:
+        try:
+            for child in path.iterdir():
+                if child.is_file() and child.suffix.lower() in exts:
+                    return True
+        except OSError:
+            return False
+        return False
 
 
 class Organizer:
@@ -1335,11 +1369,31 @@ class Organizer:
             return True
         if item.name.startswith("."):
             return True
+        if item.is_file() and self._is_archive_meta_file(item):
+            return True
+        if item.is_file() and self._is_workspace_root_marker_file(item):
+            return True
         if item.is_dir() and not include_folders:
+            return True
+        if item.is_dir() and self._is_empty_dir(item):
             return True
         if item.is_dir() and self._is_archive_dir(item):
             return True
+        if item.is_dir() and self._is_existing_category_dir(item):
+            return True
+        if item.is_dir() and self._is_workspace_internal_dir(item):
+            return True
         return False
+
+    @staticmethod
+    def _is_empty_dir(path: Path) -> bool:
+        try:
+            next(path.iterdir())
+            return False
+        except StopIteration:
+            return True
+        except OSError:
+            return False
 
     @staticmethod
     def _is_archive_dir(path: Path) -> bool:
@@ -1348,6 +1402,48 @@ class Organizer:
             or "归档" in path.name
             or path.name in {"按月份归档", "资料归档_持续整理"}
         )
+
+    @staticmethod
+    def _is_existing_category_dir(path: Path) -> bool:
+        if not path.is_dir():
+            return False
+        name = path.name
+        if re.match(r"^\d{2}[_-]", name):
+            return True
+        known_roots = {
+            "图片", "视频", "音频", "文档", "资料", "素材", "源码", "脚本", "安装包",
+            "办公文档", "项目资料", "设计资产", "软件工具", "备份归档", "临时与测试",
+        }
+        return name in known_roots
+
+    @staticmethod
+    def _is_workspace_internal_dir(path: Path) -> bool:
+        if not path.is_dir():
+            return False
+        name = path.name.lower()
+        if name in {"node_modules", ".venv", "venv", "__pycache__", ".git", ".idea", ".vscode"}:
+            return True
+        if name in {"build", "dist", "out", "target", ".next"}:
+            parent_names = {child.name.lower() for child in path.parent.iterdir()}
+            project_markers = {"package.json", "pyproject.toml", "cargo.toml", ".git", "requirements.txt"}
+            return bool(parent_names & project_markers)
+        return False
+
+    @staticmethod
+    def _is_workspace_root_marker_file(path: Path) -> bool:
+        name = path.name.lower()
+        marker_files = {
+            "package.json", "package-lock.json", "pnpm-lock.yaml", "yarn.lock",
+            "pyproject.toml", "requirements.txt", "cargo.toml", "go.mod",
+        }
+        if name not in marker_files:
+            return False
+        try:
+            sibling_names = {child.name.lower() for child in path.parent.iterdir()}
+        except OSError:
+            return False
+        workspace_dirs = {"node_modules", "src", ".git", ".venv", "venv"}
+        return bool(sibling_names & workspace_dirs)
 
     @staticmethod
     def _is_archive_meta_file(path: Path) -> bool:
@@ -1359,6 +1455,7 @@ class Organizer:
             "\u6062\u590d\u8bb0\u5f55",
             "\u5931\u8d25\u8bb0\u5f55",
             "\u5f52\u6863\u8bf4\u660e",
+            "\u6574\u7406\u8bf4\u660e",
         )
         return any(token in path.name for token in meta_tokens)
 
