@@ -253,6 +253,7 @@ class SmartClassifier:
     """A local classifier that combines purpose, file type, source pattern, and batch themes."""
     TOKEN_REGEX = re.compile(r"[a-zA-Z][a-zA-Z0-9]{2,}|[\u4e00-\u9fff]{2,8}")
     DATE_TOKEN_REGEX = re.compile(r"\d{4}[-_年]?\d{0,2}[-_月]?\d{0,2}")
+    PROJECT_NOISE_REGEX = re.compile(r"(\d{4}[-_.年]?\d{1,2}[-_.月]?\d{0,2}|\d+\s*[-–]\s*\d+|第?[一二三四五六七八九十\d]+期|[上下]$|副本|copy|CC\s*\(?\d+\.?x?\)?|已转换|已接受修订|修改|改写版|改\d*|最终|终稿|精简版|完整版|英文润色版|英语|加顿号|单页|方向|成片|课件|讲义|习题|封面|配图|脚本|文案|视频素材|素材|AE模板|模板|Report|页面[_\s-]*\d+|图像[_\s-]*\d+)", re.I)
     SPLIT_VOLUME_REGEX = re.compile(r"\.(zip|7z|rar)\.\d{3}$", re.I)
     STOCK_ID_REGEX = re.compile(r"^(iss|ist|pki)[_\d-]", re.I)
 
@@ -316,8 +317,27 @@ class SmartClassifier:
     POST_CACHE_EXTS = {".cfa", ".pek"}
     DEV_ARTIFACT_EXTS = {".pyc", ".pyd", ".pyz", ".dll", ".toc", ".vsidx", ".cache", ".suo", ".pdb", ".resources", ".tcl", ".enc", ".msg", ".tm", ".typed", ".tmpl", ".dat", ".v2", ".user", ".manifest", ".res"}
     EMAIL_EXTS = {".msg", ".eml"}
+    DISC_IMAGE_EXTS = {".bin", ".img", ".iso", ".cue", ".mdf", ".mds", ".nrg", ".dvd", ".dvds"}
     SHORTCUT_TEMP_EXTS = {".lnk", ".url", ".xdown", ".download", ".tmp", ".part", ".crdownload", ".torrent"}
     SKIP_NAMES = {"$recycle.bin", "system volume information", "desktop.ini", "thumbs.db", ".ds_store"}
+    GENERIC_PROJECT_DIRS = {
+        "01_内容项目", "02_ai生成素材_按来源与月份", "04_商用素材库", "05_影视音频资料", "07_文档脚本流程与字体",
+        "08_旧文件夹与未归类", "10_设计与品牌资产", "11_数据表格与备份", "13_照片截图与临时影像",
+        "其他创作素材", "待识别文件夹", "其他散件", "压缩包待识别", "视频", "图片", "素材", "整理", "视频文案",
+        "文档脚本流程", "代码配置与自动化脚本", "设计源文件与视觉素材", "视频图片素材", "音乐音效合集",
+        "普通图片素材", "平台接收与下载图片", "微信qq接收", "即梦生成素材", "gemini生成素材",
+    }
+    SHORT_PROJECT_BLOCKLIST = {
+        "力学", "素材", "视频", "图片", "文档", "脚本", "模板", "封面", "配图", "音频", "录音", "截图",
+        "微信图片", "qq截图", "录屏", "输出", "拍摄", "预览", "下载", "合同", "发票", "报价单", "会议纪要",
+        "标题", "视频样机图",
+    }
+    GENERIC_PROJECT_ALIAS_PATTERNS = (
+        (re.compile(r".*(25总结|2025总结|2025年度总结).*", re.I), "2025年度总结"),
+        (re.compile(r".*(watermark|批量.*水印|加水印).*", re.I), "批量水印工具"),
+        (re.compile(r".*(片头.*片尾|intro.*outro).*", re.I), "视频片头片尾工具"),
+        (re.compile(r".*(book.*3d|图书.*3d|书籍.*3d).*", re.I), "图书3D生成工具"),
+    )
 
     STOP_WORDS = {
         "copy", "final", "new", "old", "test", "demo", "backup", "download", "image", "images", "video",
@@ -469,7 +489,7 @@ class SmartClassifier:
         if path.is_dir():
             return self._classify_folder(path, theme)
 
-        if name.lower() in self.SKIP_NAMES or name.startswith("~$"):
+        if name.lower() in self.SKIP_NAMES or name.startswith("~$") or name.startswith("._"):
             return self._result("98_快捷方式与下载残留/系统缓存与临时文件", 82, "识别为系统索引、缩略图、Office 临时文件或隐藏缓存")
 
         if ext in self.SHORTCUT_TEMP_EXTS:
@@ -481,8 +501,8 @@ class SmartClassifier:
         if self.SPLIT_VOLUME_REGEX.search(lower):
             return self._result("90_压缩包与待解包/分卷压缩包", 70, "识别为分卷压缩包的一部分")
 
-        if ext in {".bin", ".img", ".iso"}:
-            return self._result("08_软件安装包与插件/镜像固件与工具文件", 72, "像固件、镜像或工具程序数据")
+        if ext in self.DISC_IMAGE_EXTS:
+            return self._result("08_软件安装包与插件/光盘镜像与安装介质", 78, "识别为光盘镜像、DVD 工程或安装介质文件")
 
         if ext in {".pszlpack", ".tb"} or self._has_any(lower, ("photoshop", "blender")):
             return self._result("03_设计与创意资产/设计软件包与页面素材", 78, "像设计软件资源包、页面模板或创作工具资产")
@@ -525,11 +545,11 @@ class SmartClassifier:
             if ext in self.POST_CACHE_EXTS:
                 return self._result("12_剪辑工程与后期制作/预览缓存与峰值文件", 82, "识别为 Premiere/剪辑软件生成的音频预览或峰值缓存")
 
-        if ext in self.DESIGN_EXTS or self._has_any(lower, self.DESIGN_TOPICS):
-            return self._result("03_设计与创意资产/设计源文件与视觉素材", 88, "命中设计源文件扩展名或视觉设计关键词")
-
         if ext in self.POST_EXTS:
             return self._result("12_剪辑工程与后期制作/工程字幕调色文件", 88, "命中剪辑、字幕、调色或后期工程扩展名")
+
+        if ext in self.DESIGN_EXTS or self._has_any(lower, self.DESIGN_TOPICS):
+            return self._result("03_设计与创意资产/设计源文件与视觉素材", 88, "命中设计源文件扩展名或视觉设计关键词")
 
         if ext in self.MODEL_EXTS or self._has_any(lower, self.MODEL_TOPICS):
             if ext in self.ARCHIVE_EXTS:
@@ -624,9 +644,9 @@ class SmartClassifier:
         if lower in self.SKIP_NAMES:
             return self._result("99_待确认/系统目录", 40, "系统目录，不建议整理")
 
-        project_result = self._classify_project_item(path, datetime.fromtimestamp(path.stat().st_mtime).strftime("%Y-%m"), theme)
-        if project_result:
-            return project_result
+        library_result = self._classify_library_folder(path)
+        if library_result:
+            return library_result
 
         if lower in {"download", "115download", "video", "thumb_cache"}:
             return self._result("98_快捷方式与下载残留/下载缓存目录", 68, "像下载器、缓存或通用视频临时目录")
@@ -651,6 +671,10 @@ class SmartClassifier:
 
         if self._is_post_project_dir(path):
             return self._result("12_剪辑工程与后期制作/工程包与项目目录", 92, "识别为 AE/PR/剪辑工程包，需整体保留素材路径关系")
+
+        project_result = self._classify_project_item(path, datetime.fromtimestamp(path.stat().st_mtime).strftime("%Y-%m"), theme)
+        if project_result:
+            return project_result
 
         if re.match(r"^(dist|release|publish|output|out)[_-]?", lower) and self._folder_has_ext(path, self.INSTALLER_EXTS | {".exe", ".msi"}):
             return self._result("08_软件安装包与插件/构建发布包目录", 88, "文件夹名像 dist/release，且内部包含 exe/msi 等发布产物")
@@ -693,6 +717,49 @@ class SmartClassifier:
             return self._result("99_待确认/历史下载目录", 58, "像浏览器或工具生成的历史下载目录")
         return self._result("99_待确认/待识别文件夹", 45, "文件夹名和内部结构缺少明确线索")
 
+    def _classify_library_folder(self, path: Path) -> tuple[str, int, str] | None:
+        lower = path.name.lower()
+        child_hint = self._folder_child_name_hint(path) if re.fullmatch(r"\d{1,4}", lower) else ""
+        numbered_text = f"{lower} {child_hint}".lower()
+        if child_hint:
+            if self._has_any(numbered_text, ("报告会", "会议", "活动", "颁奖", "发布会")) and self._has_any(numbered_text, ("照片", "合影", "影像")):
+                return self._result("01_主题项目资料/会议活动照片资料", 84, "编号文件夹内部像会议、报告会或活动照片资料，应按事件资料保留")
+            if self._has_any(numbered_text, ("听力", "课程", "小学", "病例", "教学", "培训", "videos", "video", "cd", "dvd", ".dvds")):
+                return self._result("11_音频视频资料/教学与光盘视频资料", 82, "编号文件夹内部像教学视频、课程 CD/DVD 或历史影像资料")
+            if self._has_any(numbered_text, ("照片", "图片", "影像")):
+                return self._result("02_图片视频与AI素材/照片影像资料库", 78, "编号文件夹内部主要像照片或影像资料")
+        if "勿删" in path.name or "不要删" in path.name or "备份" in lower:
+            return self._result("06_历史资料库/需保留原结构", 94, "文件夹名明确提示保留或备份，不建议拆分整理")
+        if re.search(r"\d{4}.*\d{4}.*(排版|图书|资料|文件)", path.name):
+            return self._result("06_历史资料库/排版出版老资料", 92, "文件夹名像跨年度历史排版或出版资料库，应保留原结构")
+        if "ae工程" in lower or "pr工程" in lower or "工程文件" in lower:
+            return self._result("12_剪辑工程与后期制作/工程库", 92, "文件夹名像 AE/PR/剪辑工程库，应整体保留素材路径关系")
+        if "ps笔刷" in lower or "笔刷" in lower:
+            return self._result("03_设计与创意资产/笔刷字体与插件", 88, "文件夹名像 Photoshop 笔刷、字体或设计插件资源")
+        if "光盘镜像" in lower or lower in {"iso", "镜像"}:
+            return self._result("08_软件安装包与插件/光盘镜像与安装介质", 88, "文件夹名像光盘镜像或安装介质")
+        if "有赞" in lower or self._has_any(lower, ("网店", "店铺页面", "详情页", "商城页面")):
+            return self._result("01_出版项目资料/电商页面与详情素材", 86, "文件夹名像网店页面、商品详情或电商素材")
+        if lower in {"日常工作", "工作资料", "日常资料"}:
+            return self._result("06_历史资料库/日常工作资料", 82, "文件夹名像长期积累的工作资料库，保守保留为资料库")
+        if lower in {"素材", "素材库", "资源库"}:
+            return self._result("04_素材库/综合素材库", 88, "文件夹名就是素材库，适合按素材库整体保留")
+        return None
+
+    def _folder_child_name_hint(self, path: Path, limit: int = 10) -> str:
+        names: list[str] = []
+        try:
+            for child in path.iterdir():
+                lower = child.name.lower()
+                if lower in self.SKIP_NAMES or child.name.startswith(".") or child.name.startswith("~$"):
+                    continue
+                names.append(child.name)
+                if len(names) >= limit:
+                    break
+        except OSError:
+            return ""
+        return " ".join(names)
+
     def _dominant_folder_kind(self, path: Path) -> tuple[str, int, str] | None:
         counts = {"media": 0, "docs": 0, "code": 0, "design": 0, "model": 0, "audio": 0, "data": 0, "installer": 0, "archive": 0}
         checked = 0
@@ -731,6 +798,9 @@ class SmartClassifier:
         dominant = max(counts, key=counts.get)
         if counts[dominant] / checked < 0.55:
             return None
+        lower = path.name.lower()
+        if dominant == "media" and self._has_any(lower, ("视频", "video", "videos", "demo", "dvd", "cd")):
+            return self._result("11_音频视频资料/视频资料库", 78, "内部以视频为主，且文件夹名像视频、演示或光盘资料库")
         mapping = {
             "media": ("02_图片视频与AI素材/图片视频目录", "内部以图片/视频为主"),
             "audio": ("11_音频视频资料/音乐音效与录音", "内部以音频文件为主"),
@@ -754,21 +824,17 @@ class SmartClassifier:
 
     def _project_name_from_context(self, path: Path, theme: str | None = None) -> str | None:
         text = " ".join([path.name.lower(), *(part.lower() for part in path.parts[-4:-1])])
+        if self._has_any(text, ("包图网", "ibaotu", "摄图", "站酷", "千图", "vecteezy", "istock", "shutterstock")):
+            return None
+
+        generic_project = self._generic_project_from_context(path)
+        if generic_project:
+            return generic_project
+
         if theme:
             cleaned = self._normalize_project_topic(theme)
             if self._looks_like_project_topic(cleaned):
                 return cleaned
-
-        semantic_projects = (
-            ("水产科普口播稿", (("水产", "口播"), ("水产科普",), ("鱼类篇", "虾蟹篇", "贝类篇", "头足类"))),
-            ("麻将规则与番种图解", (("麻将", "番种"), ("麻将", "番型"), ("国标麻将",), ("番种",))),
-            ("批量水印工具", (("批量", "水印"), ("加水印",), ("watermark",))),
-            ("视频片头片尾工具", (("片头", "片尾"), ("视频片头",), ("视频片尾",))),
-            ("图书3D生成工具", (("book", "3d", "generator"), ("book-3d",), ("图书", "3d"), ("书籍", "3d"))),
-        )
-        for project, keyword_groups in semantic_projects:
-            if any(all(keyword in text for keyword in group) for group in keyword_groups):
-                return project
 
         if path.is_dir() and self._is_project_like_folder(path):
             return self._normalize_project_topic(path.name)
@@ -777,25 +843,73 @@ class SmartClassifier:
             return self._normalize_project_topic(path.stem)
         return None
 
+    def _generic_project_from_context(self, path: Path) -> str | None:
+        candidates = [path.stem]
+        candidates.extend(reversed(path.parts[-5:-1]))
+        for candidate in candidates:
+            normalized = self._normalize_project_topic(candidate)
+            normalized = self._strip_project_noise(normalized)
+            if self._looks_like_content_project(normalized):
+                return normalized
+        return None
+
     def _normalize_project_topic(self, topic: str) -> str:
         cleaned = self._clean_topic(topic)
+        cleaned = re.sub(r"^(改好的|修改后|新版|最终版|换一个ai写的|ai写的|ai改的)[_-]?", "", cleaned, flags=re.I).strip(" ._-")
+        data_match = re.search(r"(.{2,}?数据)(库|集)", cleaned)
+        if data_match:
+            return self._clean_topic(data_match.group(1) + "库")
+        if "朗诵" in cleaned and ("片头" in cleaned or "片尾" in cleaned):
+            return "朗诵节目"
+        for pattern, alias in self.GENERIC_PROJECT_ALIAS_PATTERNS:
+            if pattern.match(cleaned):
+                return alias
+        cleaned = re.sub(r"^\d+[.、_-]?", "", cleaned).strip(" ._-")
         lower = cleaned.lower()
-        if "watermark" in lower or "水印" in cleaned:
-            return "批量水印工具" if "批量" in cleaned or "batch" in lower else "水印工具"
-        if ("片头" in cleaned and "片尾" in cleaned) or "intro" in lower or "outro" in lower:
-            return "视频片头片尾工具"
-        if ("book" in lower and "3d" in lower) or ("图书" in cleaned and "3d" in lower):
-            return "图书3D生成工具"
         return cleaned
+
+    def _strip_project_noise(self, topic: str) -> str:
+        topic = self.PROJECT_NOISE_REGEX.sub("", topic)
+        topic = re.sub(r"(?<=[\u4e00-\u9fff])\d+$", "", topic)
+        topic = re.sub(r"[-_（(]?\d+[）)]?$", "", topic)
+        topic = re.sub(r"[-_][\u4e00-\u9fff]{1,3}$", "", topic)
+        topic = re.sub(r"[_\-\s（）()]+$", "", topic).strip(" ._-（）()")
+        topic = re.sub(r"^(【[^】]+】|包图网[_-]?\d+)", "", topic).strip(" ._-")
+        return self._clean_topic(topic)
 
     @staticmethod
     def _looks_like_project_topic(topic: str) -> bool:
-        weak_topics = {"共同主题", "生成", "最终", "版本", "精简版", "图解版", "完整", "改进版", "清晰版", "紧凑版", "说明", "文档"}
+        weak_topics = {"共同主题", "生成", "最终", "版本", "精简版", "图解版", "完整", "改进版", "清晰版", "紧凑版", "说明", "文档", "模板"}
         if not topic or topic in weak_topics:
+            return False
+        if re.fullmatch(r"(wechat|weixin|qq|tim|img|dsc|pxl|copy|screenrecording|screen recording).*", topic.lower()):
+            return False
+        if re.fullmatch(r"[a-f0-9]{12,}.*", topic.lower()):
             return False
         if any(keyword in topic.lower() for keyword in ("工具", "生成器", "项目", "工程", "口播", "图解", "watermark", "generator", "converter")):
             return True
         return len(topic) >= 5
+
+    def _looks_like_content_project(self, topic: str) -> bool:
+        if not topic:
+            return False
+        lower = topic.lower()
+        if lower in self.GENERIC_PROJECT_DIRS or topic == "共同主题" or topic in self.SHORT_PROJECT_BLOCKLIST or re.fullmatch(r"\d{4}[-_.年]?\d{1,2}[-_.月]?\d{0,2}", lower):
+            return False
+        if re.fullmatch(r"(wechat|weixin|qq|tim|img|dsc|pxl|copy|screenrecording|screen recording).*", lower):
+            return False
+        if re.fullmatch(r"[a-f0-9]{12,}.*", lower) or re.fullmatch(r"\d+([_-]\d+)?", lower):
+            return False
+        if self._has_any(lower, ("截图", "微信图片", "qq截图", "image", "video", "下载", "源素材", "背景", "未标题", "filelist", "预览视频", "仅自己可见", "配音demo")):
+            return False
+        content_keywords = (
+            "练习册", "课程", "课堂", "课件", "教材", "试题", "习题", "高考", "期中", "期末",
+            "科普", "工程", "计算机", "数据库", "数据集", "生态", "文明", "读书", "好书", "营销", "产品介绍",
+            "宣传片", "短视频", "视频号", "栏目", "专题", "片头", "全息", "科技", "朗诵", "总结", "vlog",
+        )
+        if self._has_any(topic, content_keywords):
+            return True
+        return False
 
     def _is_project_like_folder(self, path: Path) -> bool:
         lower = path.name.lower()
@@ -813,18 +927,22 @@ class SmartClassifier:
             if re.match(r"^(dist|release|publish|output|out)[_-]?", lower) or self._folder_has_ext(path, self.INSTALLER_EXTS | {".exe", ".msi", ".zip"}):
                 return "04_发布包与安装包"
             if self._folder_mostly_ext(path, self.IMAGE_EXTS | self.VIDEO_EXTS):
-                return "03_素材图例与媒体"
+                return "03_图片视频素材"
             return "05_项目资料夹"
         if ext in self.CODE_EXTS:
             return "01_脚本与源码"
+        if ext in self.PROJECT_BUNDLE_EXTS:
+            return "01_剪辑工程文件"
         if ext in self.INSTALLER_EXTS or ext in {".apk", ".ipa"}:
             return "04_发布包与安装包"
         if ext in self.ARCHIVE_EXTS and self._has_any(lower, ("win", "release", "安装", "发布", "dist")):
             return "04_发布包与安装包"
-        if ext in self.IMAGE_EXTS or ext in self.VIDEO_EXTS or ext in self.DESIGN_EXTS:
-            return "03_素材图例与媒体"
+        if ext in self.VIDEO_EXTS:
+            return "04_视频成片与素材"
+        if ext in self.IMAGE_EXTS or ext in self.DESIGN_EXTS:
+            return "03_图片素材与配图"
         if ext in self.AUDIO_EXTS:
-            return "03_音频素材与录音"
+            return "05_音频素材与录音"
         if ext in self.DOC_EXTS or ext in self.EBOOK_EXTS:
             if "口播稿" in project or "口播" in lower:
                 if self._has_any(lower, ("终稿", "最终", "定稿")):
@@ -835,8 +953,8 @@ class SmartClassifier:
             if self._has_any(lower, ("说明", "readme", "使用说明", "教程")):
                 return "05_说明文档"
             if ext in {".pdf", ".doc", ".docx", ".ppt", ".pptx"}:
-                return "02_成品文档"
-            return "05_项目资料"
+                return "02_文稿脚本与资料"
+            return "02_文稿脚本与资料"
         if ext in self.DATA_EXTS:
             return "06_数据表格"
         return "05_项目资料"
@@ -1239,13 +1357,22 @@ class Organizer:
         recurring = {
             token
             for token, count in counts.items()
-            if count >= 3 or (count >= 2 and (len(token) >= 5 or ("\u4e00" <= token[0] <= "\u9fff" and len(token) >= 4)))
+            if token not in self.classifier.SHORT_PROJECT_BLOCKLIST
+            and token.lower() not in self.classifier.GENERIC_PROJECT_DIRS
+            and (
+                count >= 3
+                or (count >= 2 and (len(token) >= 5 or ("\u4e00" <= token[0] <= "\u9fff" and len(token) >= 4)))
+                or (count >= 4 and "\u4e00" <= token[0] <= "\u9fff" and len(token) >= 2)
+            )
         }
         result: dict[str, str] = {}
         for name, tokens in item_tokens.items():
-            matched = sorted(tokens & recurring, key=lambda token: (-counts[token], len(token), token))
+            matched = sorted(tokens & recurring, key=lambda token: (-counts[token], -len(token), token))
             if matched:
-                result[name] = matched[0]
+                theme = self.classifier._normalize_project_topic(matched[0])
+                if 2 <= len(theme) <= 4 and "\u4e00" <= theme[0] <= "\u9fff" and theme not in self.classifier.SHORT_PROJECT_BLOCKLIST:
+                    theme = f"{theme}内容项目"
+                result[name] = theme
         return result
 
     def execute_plan(self, archive_root: Path, plan: list[PlanItem], cutoff: datetime | None = None) -> MoveResult:
@@ -1538,7 +1665,14 @@ class Organizer:
             "图片", "视频", "音频", "文档", "资料", "素材", "源码", "脚本", "安装包",
             "办公文档", "项目资料", "设计资产", "软件工具", "备份归档", "临时与测试",
         }
-        return name in known_roots
+        if name not in known_roots:
+            return False
+        parent = path.parent
+        try:
+            archive_marked = (parent / ARCHIVE_MARKER).exists() or any(parent.glob("整理清单*.csv"))
+        except OSError:
+            archive_marked = False
+        return archive_marked or "归档" in parent.name or parent.name in {"按月份归档", "资料归档_持续整理"}
 
     @staticmethod
     def _is_workspace_internal_dir(path: Path) -> bool:
@@ -1692,6 +1826,8 @@ class Organizer:
             return path.stat().st_size
         total = 0
         stack = [path]
+        checked = 0
+        max_entries = 2000
         while stack:
             current = stack.pop()
             try:
@@ -1702,6 +1838,9 @@ class Organizer:
                                 stack.append(Path(entry.path))
                             elif entry.is_file(follow_symlinks=False):
                                 total += entry.stat(follow_symlinks=False).st_size
+                            checked += 1
+                            if checked >= max_entries:
+                                return total
                         except OSError:
                             continue
             except OSError:
@@ -2494,7 +2633,7 @@ class ModernOrganizerApp:
         parent.grid_columnconfigure(1, weight=1)
         ctk.CTkLabel(
             parent,
-            text="AI 增强默认关闭。开启后可用于分析低可信度结果、辅助生成规则建议；密钥只保存在本机设置文件中。",
+            text="AI 增强默认关闭。开启后会先用本地规则预整理，再把待确认、泛分类和疑似被拆散的项目交给 AI 复核；高可信结果会沉淀成本机规则，之后可在“整理规则”页查看、微调和导出。密钥只保存在本机设置文件中。",
             font=ctk.CTkFont(family="Microsoft YaHei UI", size=13),
             text_color=COLORS["muted"],
             wraplength=860,
@@ -2758,23 +2897,25 @@ class ModernOrganizerApp:
         if not config.get("base_url") or not config.get("api_key") or not config.get("model"):
             self.root.after(0, lambda: messagebox.showwarning(APP_NAME, "AI 增强已开启，但接口、Key 或模型未配置完整。本次先使用本地规则。", parent=self.root))
             return plan, "AI 未配置完整，已跳过"
-        suspects = [item for item in plan if item.confidence < 70 or item.category.startswith("99_") or "待确认" in item.category]
+        suspects = self._ai_select_suspects(plan)
         if not suspects:
             return plan, "AI 检查：没有明显存疑项"
-        limit = min(len(suspects), 60)
+        limit = min(len(suspects), 80)
         suspects = suspects[:limit]
         corrected: dict[str, tuple[str, int, str]] = {}
+        learned_rules: list[dict] = []
         batches = [suspects[i:i + 15] for i in range(0, len(suspects), 15)]
         for index, batch in enumerate(batches, start=1):
             self.root.after(0, lambda i=index, total=len(batches), n=len(batch): self.status_var.set(f"AI 正在分析存疑文件：第 {i}/{total} 批，{n} 个项目..."))
             try:
-                result = self._ask_ai_for_classification(batch, plan)
+                result, rules = self._ask_ai_for_classification(batch, plan)
             except Exception as exc:
                 self.root.after(0, lambda e=exc: self.status_var.set(f"AI 分析失败，已保留本地规则结果：{e}"))
                 return plan, "AI 分析失败，已保留本地结果"
             corrected.update(result)
+            learned_rules.extend(rules)
             self.root.after(0, lambda i=index, total=len(batches): self.status_var.set(f"AI 第 {i}/{total} 批结果已返回，正在合并分类..."))
-        if not corrected:
+        if not corrected and not learned_rules:
             return plan, "AI 未返回可用修正"
         new_plan = []
         changed = 0
@@ -2792,17 +2933,85 @@ class ModernOrganizerApp:
             new_plan.append(replace(item, destination=dest, category=category, confidence=max(confidence, item.confidence, 75), reason=f"AI复核：{reason}"))
             if category != item.category:
                 changed += 1
-        if changed:
-            self._persist_ai_rule_suggestions(plan, corrected)
-        self.root.after(0, lambda: self.status_var.set(f"AI 分析完成：修正 {changed} 个存疑分类。"))
-        return new_plan, f"AI 已复核 {len(suspects)} 个存疑项，修正 {changed} 个"
+        learned_count = self._persist_ai_rule_suggestions(plan, corrected, learned_rules) if (changed or learned_rules) else 0
+        self.root.after(0, lambda: self.status_var.set(f"AI 分析完成：修正 {changed} 个存疑分类，沉淀 {learned_count} 条本机规则。"))
+        return new_plan, f"AI 已复核 {len(suspects)} 个存疑项，修正 {changed} 个，学习 {learned_count} 条规则"
 
-    def _persist_ai_rule_suggestions(self, plan: list[PlanItem], corrected: dict[str, tuple[str, int, str]]) -> None:
+    def _ai_select_suspects(self, plan: list[PlanItem]) -> list[PlanItem]:
+        selected: list[PlanItem] = []
+        seen: set[str] = set()
+
+        def add(item: PlanItem) -> None:
+            key = str(item.source)
+            if key not in seen:
+                seen.add(key)
+                selected.append(item)
+
+        generic_markers = (
+            "普通图片素材",
+            "视频文件/",
+            "普通文档资料",
+            "图片视频目录",
+            "待确认",
+            "其他散件",
+            "代码配置脚本",
+        )
+        for item in plan:
+            if item.confidence < 75 or item.category.startswith("99_") or any(marker in item.category for marker in generic_markers):
+                add(item)
+
+        project_groups: dict[str, list[PlanItem]] = {}
+        for item in plan:
+            if item.category.startswith("01_项目工作区/"):
+                parts = item.category.split("/")
+                if len(parts) > 1:
+                    project_groups.setdefault(parts[1], []).append(item)
+        for project, items in project_groups.items():
+            if len(items) == 1 and self.organizer.classifier._looks_like_content_project(project):
+                add(items[0])
+
+        stems: dict[str, list[PlanItem]] = {}
+        for item in plan:
+            cleaned = self.organizer.classifier._strip_project_noise(self.organizer.classifier._normalize_project_topic(item.source.stem))
+            if cleaned and len(cleaned) >= 3:
+                stems.setdefault(cleaned, []).append(item)
+        for items in stems.values():
+            categories = {item.category for item in items}
+            if len(items) >= 2 and len(categories) >= 2:
+                for item in items[:8]:
+                    add(item)
+
+        selected.sort(key=lambda item: (item.confidence, item.modified_at, item.source.name.lower()))
+        return selected
+
+    def _persist_ai_rule_suggestions(self, plan: list[PlanItem], corrected: dict[str, tuple[str, int, str]], learned_rules: list[dict] | None = None) -> int:
         by_path = {str(item.source): item for item in plan}
         local_rules = self._load_local_rules()
         patterns = list(local_rules.get("ai_category_patterns", [])) if isinstance(local_rules.get("ai_category_patterns"), list) else []
         seen = {(str(item.get("pattern")), str(item.get("category"))) for item in patterns if isinstance(item, dict)}
         added = 0
+        for rule in learned_rules or []:
+            pattern = str(rule.get("pattern", "")).strip()
+            category = str(rule.get("category", "")).strip().strip("/\\")
+            try:
+                confidence = int(rule.get("confidence", 85))
+            except (TypeError, ValueError):
+                confidence = 85
+            if not self._is_safe_ai_rule(pattern, category, confidence):
+                continue
+            key = (pattern, category)
+            if key in seen:
+                continue
+            patterns.append({
+                "pattern": pattern,
+                "category": category,
+                "source": "ai-learned",
+                "reason": str(rule.get("reason", "AI 根据用户文件批次学习")).strip()[:120],
+                "confidence": confidence,
+                "created_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            })
+            seen.add(key)
+            added += 1
         for item_id, (category, confidence, _reason) in corrected.items():
             source_item = by_path.get(item_id)
             if not source_item or confidence < 80 or not category or category.startswith("99_") or category == source_item.category:
@@ -2827,16 +3036,37 @@ class ModernOrganizerApp:
                 seen.add(key)
                 added += 1
         if not added:
-            return
+            return 0
         local_rules["version"] = timestamp_version("ai-rules")
         local_rules.setdefault("description", "用户本机规则。AI 复核会把高可信、较通用的修正沉淀在这里。")
         local_rules["ai_category_patterns"] = patterns[-200:]
         (runtime_dir() / LOCAL_RULES_FILE).write_text(json.dumps(local_rules, ensure_ascii=False, indent=2), encoding="utf-8")
         self.organizer = Organizer()
+        return added
 
-    def _ask_ai_for_classification(self, batch: list[PlanItem], plan: list[PlanItem]) -> dict[str, tuple[str, int, str]]:
+    def _is_safe_ai_rule(self, pattern: str, category: str, confidence: int) -> bool:
+        if confidence < 80 or not pattern or not category or category.startswith("99_"):
+            return False
+        if len(pattern) < 3 or len(pattern) > 120 or len(category) > 120:
+            return False
+        too_broad = {"视频", "图片", "文档", "素材", "文件", "下载", "image", "video", "file", "mp4", "jpg", "png"}
+        if pattern.strip(".*^$").lower() in too_broad:
+            return False
+        try:
+            re.compile(pattern)
+        except re.error:
+            return False
+        return True
+
+    def _ask_ai_for_classification(self, batch: list[PlanItem], plan: list[PlanItem]) -> tuple[dict[str, tuple[str, int, str]], list[dict]]:
         config = self._ai_config()
         categories = sorted({item.category for item in plan} | {item.category for item in batch})
+        context_groups: dict[str, list[str]] = {}
+        for item in plan:
+            normalized = self.organizer.classifier._strip_project_noise(self.organizer.classifier._normalize_project_topic(item.source.stem))
+            if normalized and len(normalized) >= 3:
+                context_groups.setdefault(normalized, []).append(item.source.name)
+        context_groups = {key: values[:8] for key, values in context_groups.items() if len(values) >= 2}
         payload_items = [
             {
                 "id": str(item.source),
@@ -2851,15 +3081,26 @@ class ModernOrganizerApp:
             for item in batch
         ]
         prompt = (
-            "你是文件整理规则审查助手。请像专业文件管理员一样，只根据文件名、父级路径、扩展名、当前分类和理由判断。"
-            "不要凭空读取文件内容，不要建议拆散 AE/PR/代码工程包。"
-            "在现有分类不合理时给出更合理的中文分类路径；合理时可保留原分类。"
-            "只输出 JSON 数组，每项包含 id, category, confidence, reason。"
+            "你是文件整理规则审查助手。目标是让软件越用越懂用户，但必须保守、可恢复、可复用。"
+            "只根据文件名、父级路径、扩展名、当前分类和理由判断；不要假装读取文件内容。"
+            "不要拆散 AE/PR/代码工程包；不要把合同、发票、证件、微信截图、录屏、随机哈希名硬归成项目。"
+            "优先发现同一项目被版本词、编号、成片/脚本/封面/素材拆散的情况，并给出统一中文项目路径。"
+            "请只输出严格 JSON 对象，格式为："
+            "{\"corrections\":[{\"id\":\"...\",\"category\":\"...\",\"confidence\":85,\"reason\":\"...\"}],"
+            "\"rules\":[{\"pattern\":\"可复用正则或关键词\",\"category\":\"中文分类路径\",\"confidence\":85,\"reason\":\"为什么适合长期保存\"}]}。"
+            "rules 只写高可信、针对用户长期习惯的规则；不要写过宽泛规则。"
             f"\n可参考已有分类：{json.dumps(categories, ensure_ascii=False)}"
+            f"\n同批相似文件线索：{json.dumps(context_groups, ensure_ascii=False)}"
             f"\n待复核项目：{json.dumps(payload_items, ensure_ascii=False)}"
         )
         response = self._call_ai_chat(prompt, config)
-        data = self._extract_json_array(response)
+        payload = self._extract_json_payload(response)
+        if isinstance(payload, list):
+            data = payload
+            rules = []
+        else:
+            data = payload.get("corrections", []) if isinstance(payload.get("corrections"), list) else []
+            rules = payload.get("rules", []) if isinstance(payload.get("rules"), list) else []
         result: dict[str, tuple[str, int, str]] = {}
         for item in data:
             if not isinstance(item, dict):
@@ -2874,7 +3115,7 @@ class ModernOrganizerApp:
             confidence = max(50, min(98, confidence))
             if item_id and category:
                 result[item_id] = (category, confidence, reason)
-        return result
+        return result, [rule for rule in rules if isinstance(rule, dict)]
 
     def _call_ai_chat(self, prompt: str, config: dict) -> str:
         url = str(config.get("base_url", "")).rstrip("/") + "/chat/completions"
@@ -2902,16 +3143,26 @@ class ModernOrganizerApp:
 
     @staticmethod
     def _extract_json_array(text: str) -> list:
+        payload = ModernOrganizerApp._extract_json_payload(text)
+        return payload if isinstance(payload, list) else []
+
+    @staticmethod
+    def _extract_json_payload(text: str) -> object:
         stripped = text.strip()
         if stripped.startswith("```"):
             stripped = re.sub(r"^```(?:json)?", "", stripped, flags=re.I).strip()
             stripped = re.sub(r"```$", "", stripped).strip()
-        start = stripped.find("[")
-        end = stripped.rfind("]")
+        object_start = stripped.find("{")
+        array_start = stripped.find("[")
+        if object_start >= 0 and (array_start < 0 or object_start < array_start):
+            start = object_start
+            end = stripped.rfind("}")
+        else:
+            start = array_start
+            end = stripped.rfind("]")
         if start >= 0 and end >= start:
             stripped = stripped[start:end + 1]
-        data = json.loads(stripped)
-        return data if isinstance(data, list) else []
+        return json.loads(stripped)
 
     def _selected_root(self) -> Path | None:
         folder = self.folder_var.get().strip()
