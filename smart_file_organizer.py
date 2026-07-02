@@ -493,6 +493,10 @@ class SmartClassifier:
         if ext in self.AI_MODEL_EXTS or self._has_any(lower, ("lora", "loar", "pony", "sdxl", "sd15", "vae", "embedding", "checkpoint", "controlnet")):
             return self._result("02_图片视频与AI素材/AI模型与工作流资源", 92, "命中 AI 模型、LoRA、VAE、Checkpoint 或相关资源特征")
 
+        project_result = self._classify_project_item(path, modified_month, theme)
+        if project_result:
+            return project_result
+
         for source_name, pattern in self.AI_SOURCE_PATTERNS:
             if pattern.search(name):
                 return self._result(f"02_图片视频与AI素材/AI生成素材/{source_name}/{modified_month}", 96, f"识别到 {source_name} 的命名模式，并按月份归档")
@@ -620,6 +624,10 @@ class SmartClassifier:
         if lower in self.SKIP_NAMES:
             return self._result("99_待确认/系统目录", 40, "系统目录，不建议整理")
 
+        project_result = self._classify_project_item(path, datetime.fromtimestamp(path.stat().st_mtime).strftime("%Y-%m"), theme)
+        if project_result:
+            return project_result
+
         if lower in {"download", "115download", "video", "thumb_cache"}:
             return self._result("98_快捷方式与下载残留/下载缓存目录", 68, "像下载器、缓存或通用视频临时目录")
 
@@ -736,6 +744,118 @@ class SmartClassifier:
         }
         category, reason = mapping[dominant]
         return self._result(category, 76, reason)
+
+    def _classify_project_item(self, path: Path, modified_month: str, theme: str | None = None) -> tuple[str, int, str] | None:
+        project = self._project_name_from_context(path, theme)
+        if not project:
+            return None
+        role = self._project_role(path, project)
+        return self._result(f"01_项目工作区/{project}/{role}", 90, f"识别为“{project}”项目资料，按项目优先归档，项目内再按资料角色分层")
+
+    def _project_name_from_context(self, path: Path, theme: str | None = None) -> str | None:
+        text = " ".join([path.name.lower(), *(part.lower() for part in path.parts[-4:-1])])
+        if theme:
+            cleaned = self._normalize_project_topic(theme)
+            if self._looks_like_project_topic(cleaned):
+                return cleaned
+
+        semantic_projects = (
+            ("水产科普口播稿", (("水产", "口播"), ("水产科普",), ("鱼类篇", "虾蟹篇", "贝类篇", "头足类"))),
+            ("麻将规则与番种图解", (("麻将", "番种"), ("麻将", "番型"), ("国标麻将",), ("番种",))),
+            ("批量水印工具", (("批量", "水印"), ("加水印",), ("watermark",))),
+            ("视频片头片尾工具", (("片头", "片尾"), ("视频片头",), ("视频片尾",))),
+            ("图书3D生成工具", (("book", "3d", "generator"), ("book-3d",), ("图书", "3d"), ("书籍", "3d"))),
+        )
+        for project, keyword_groups in semantic_projects:
+            if any(all(keyword in text for keyword in group) for group in keyword_groups):
+                return project
+
+        if path.is_dir() and self._is_project_like_folder(path):
+            return self._normalize_project_topic(path.name)
+
+        if path.suffix.lower() in self.CODE_EXTS | self.INSTALLER_EXTS and self._has_any(text, ("工具", "生成器", "generator", "converter", "watermark")):
+            return self._normalize_project_topic(path.stem)
+        return None
+
+    def _normalize_project_topic(self, topic: str) -> str:
+        cleaned = self._clean_topic(topic)
+        lower = cleaned.lower()
+        if "watermark" in lower or "水印" in cleaned:
+            return "批量水印工具" if "批量" in cleaned or "batch" in lower else "水印工具"
+        if ("片头" in cleaned and "片尾" in cleaned) or "intro" in lower or "outro" in lower:
+            return "视频片头片尾工具"
+        if ("book" in lower and "3d" in lower) or ("图书" in cleaned and "3d" in lower):
+            return "图书3D生成工具"
+        return cleaned
+
+    @staticmethod
+    def _looks_like_project_topic(topic: str) -> bool:
+        weak_topics = {"共同主题", "生成", "最终", "版本", "精简版", "图解版", "完整", "改进版", "清晰版", "紧凑版", "说明", "文档"}
+        if not topic or topic in weak_topics:
+            return False
+        if any(keyword in topic.lower() for keyword in ("工具", "生成器", "项目", "工程", "口播", "图解", "watermark", "generator", "converter")):
+            return True
+        return len(topic) >= 5
+
+    def _is_project_like_folder(self, path: Path) -> bool:
+        lower = path.name.lower()
+        if self._folder_has_any(path, {"package.json", "pyproject.toml", ".git", "src", "src-tauri"}):
+            return True
+        return self._has_any(lower, ("tool", "generator", "converter", "源码", "工程", "工具"))
+
+    def _project_role(self, path: Path, project: str) -> str:
+        name = path.name
+        lower = name.lower()
+        ext = path.suffix.lower()
+        if path.is_dir():
+            if self._folder_has_any(path, {"package.json", "pyproject.toml", ".git", "src", "src-tauri"}) or self._has_any(lower, ("generator", "tool", "源码", "source")):
+                return "01_源码工程"
+            if re.match(r"^(dist|release|publish|output|out)[_-]?", lower) or self._folder_has_ext(path, self.INSTALLER_EXTS | {".exe", ".msi", ".zip"}):
+                return "04_发布包与安装包"
+            if self._folder_mostly_ext(path, self.IMAGE_EXTS | self.VIDEO_EXTS):
+                return "03_素材图例与媒体"
+            return "05_项目资料夹"
+        if ext in self.CODE_EXTS:
+            return "01_脚本与源码"
+        if ext in self.INSTALLER_EXTS or ext in {".apk", ".ipa"}:
+            return "04_发布包与安装包"
+        if ext in self.ARCHIVE_EXTS and self._has_any(lower, ("win", "release", "安装", "发布", "dist")):
+            return "04_发布包与安装包"
+        if ext in self.IMAGE_EXTS or ext in self.VIDEO_EXTS or ext in self.DESIGN_EXTS:
+            return "03_素材图例与媒体"
+        if ext in self.AUDIO_EXTS:
+            return "03_音频素材与录音"
+        if ext in self.DOC_EXTS or ext in self.EBOOK_EXTS:
+            if "口播稿" in project or "口播" in lower:
+                if self._has_any(lower, ("终稿", "最终", "定稿")):
+                    return "02_文稿成品/终稿"
+                if self._has_any(lower, ("精简版", "简版")):
+                    return "02_文稿成品/精简版"
+                return "02_文稿成品/分篇与合集"
+            if self._has_any(lower, ("说明", "readme", "使用说明", "教程")):
+                return "05_说明文档"
+            if ext in {".pdf", ".doc", ".docx", ".ppt", ".pptx"}:
+                return "02_成品文档"
+            return "05_项目资料"
+        if ext in self.DATA_EXTS:
+            return "06_数据表格"
+        return "05_项目资料"
+
+    def _folder_mostly_ext(self, path: Path, exts: set[str]) -> bool:
+        total = 0
+        hits = 0
+        try:
+            for child in path.iterdir():
+                if not child.is_file():
+                    continue
+                total += 1
+                if child.suffix.lower() in exts:
+                    hits += 1
+                if total >= 30:
+                    break
+        except OSError:
+            return False
+        return total > 0 and hits / total >= 0.7
 
     def _classify_media_deep(self, path: Path, modified_month: str) -> tuple[str, int, str] | None:
         ext = path.suffix.lower()
@@ -1116,7 +1236,11 @@ class Organizer:
             item_tokens[item.name] = tokens
             for token in tokens:
                 counts[token] = counts.get(token, 0) + 1
-        recurring = {token for token, count in counts.items() if count >= 3}
+        recurring = {
+            token
+            for token, count in counts.items()
+            if count >= 3 or (count >= 2 and (len(token) >= 5 or ("\u4e00" <= token[0] <= "\u9fff" and len(token) >= 4)))
+        }
         result: dict[str, str] = {}
         for name, tokens in item_tokens.items():
             matched = sorted(tokens & recurring, key=lambda token: (-counts[token], len(token), token))
@@ -1461,6 +1585,7 @@ class Organizer:
 
     def _protected_project_dirs(self, archive_root: Path) -> set[Path]:
         raw_roots: set[Path] = set()
+        raw_roots.update(self._protected_workspace_dirs(archive_root))
         project_exts = self.classifier.PROJECT_BUNDLE_EXTS
         for project_file in archive_root.rglob("*"):
             if not project_file.is_file() or self._is_archive_meta_file(project_file):
@@ -1476,6 +1601,25 @@ class Organizer:
             if not self._is_inside_any(root, protected):
                 protected.add(root)
         return protected
+
+    def _protected_workspace_dirs(self, archive_root: Path) -> set[Path]:
+        markers = {"package.json", "pyproject.toml", "cargo.toml", "go.mod", ".git"}
+        ignored_parts = {"node_modules", "target", "build", "dist", ".git", "__pycache__", ".venv", "venv"}
+        roots: set[Path] = set()
+        try:
+            for item in archive_root.rglob("*"):
+                if item.name not in markers:
+                    if item.name.lower() in ignored_parts and item.is_dir():
+                        continue
+                    continue
+                if any(part.lower() in ignored_parts for part in item.relative_to(archive_root).parts[:-1]):
+                    continue
+                root = item.parent
+                if root != archive_root:
+                    roots.add(root)
+        except OSError:
+            return roots
+        return roots
 
     @staticmethod
     def _project_root_for_file(project_file: Path, archive_root: Path) -> Path:
